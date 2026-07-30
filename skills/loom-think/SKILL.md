@@ -29,6 +29,25 @@ description: 深入思考、反刍、跨域研究。基于已有 L1L2 产出 L3 
 - 更新已有 L2/L3/L4 卡（深化、补反例、修正）
 - 探索性思考——结论是"这条路不通"也算有效产出
 
+## 单书 THINK 的覆盖账（材料是一本书时必须先做）
+
+触发是"刚消化完一本书，接入网络"时，plan.json 之后、探索之前先建覆盖账：
+
+```bash
+loom think-init $TASK_ID --goal="<这次思考的目标>" --materials=<domain>:<book>
+```
+
+它把这本书的全部主题卡拉成清单——**这是验收单位，不是执行顺序**。随后：
+
+- **通读主题清单，从 L2 血肉里挑深挖对象**（以问题为锚）。切入口是非主题 L2 卡（判断/机制/结构），主题卡只是索引。挑少数几张最有外联价值的，不要每个主题都深挖。
+- **明确不深挖的主题，逐个记理由**：
+  ```bash
+  loom think-skip $TASK_ID <主题卡id> --reason="<具体理由>"
+  ```
+  理由必须建立在 skim/深读的基础上——凭标题拍"不重要"不算数，语义自检会逐条复核。
+- **随时查账**：`loom think-coverage $TASK_ID`——哪些主题已被产出承接、哪些已 skip、哪些还开着。
+- 探索方式与通用 THINK 完全相同（上面的双路线螺旋不变），覆盖账不干预过程，只在收尾验收。
+
 ## 第 1 步：写 plan.json
 
 ```bash
@@ -109,25 +128,33 @@ ID 选择遵循 `_loom_core.md` 卢曼树规则：新卡应表达螺旋探索中
 
 ```bash
 # L3 生成卡（必须 link 至少一张 L2；L1 可补充但不满足门槛，008 §20）
+# 单书 THINK 任务另需 --from-topics 声明承接的主题卡（可多张）
 loom write-draft $TASK_ID <ns>:<id> \
   --type=<type> --title="<标题>" \
   --links=<至少一张 L2>[,其他 L1L3] \
-  --content-file=<content>
+  --content-file=<content> \
+  [--from-topics=<主题卡id,...>]
 
 # 反思卡（必须锚定 判断/模式 卡）
 loom write-draft $TASK_ID <ns>:<id> \
   --type=反思 --title="<标题>" \
   --links=<一张判断或模式卡> \
-  --content-file=<content>
+  --content-file=<content> \
+  [--from-topics=<主题卡id,...>]
 
 # 发现新模式 → 提案（L4 演进必须 proposal/human review，不自动入库）
 # card_id 是 gen:<卢曼ID>，按卢曼树形：新顶级模式用 gen:Na，已有模式 gen:Xa 的深化用 gen:XaY
 loom propose-l4 $TASK_ID gen:<卢曼ID> --title="<模式名>" \
   --content-file=<content with [探索期]> \
-  --related=<相关卡ID>
+  --related=<相关卡ID> \
+  [--from-topics=<主题卡id,...>]
 # 提案写到 staging/，主 agent 汇报用户→用户决策→proposal-decision→commit-l4 入库
 # 若 L4 提案 ID 与已有/待审提案冲突：不要只拒绝导致内容丢失；先保留更早提案，再为有价值的后发内容选择未占用 gen:<卢曼ID> 重新 propose-l4，并在汇报中说明旧提案→新提案映射。
 ```
+
+**--from-topics 与"读过才算数"（单书 THINK 强制）**：
+- L3 draft 和 L4 提案必须带 `--from-topics`；主题 id 必须在 think-init 的清单里。声称承接就要忠实——内容只沾边的主题不要挂名（语义自检第 c 条会查）。
+- L3 卡 link 的每张 L2 必须在本任务里 `read-cards --task-id $TASK_ID` 深读过；stop-check 会比对 read trace，凭标题 link 直接拒绝。
 
 长思考中按需或阶段性重读 L4 索引（轻量版，仅标题列表），用于刷新思考方向；不要为了合规在每张卡后机械调用：
 ```bash
@@ -165,6 +192,11 @@ loom mark-ready $TASK_ID
 
 - Claude Code：SubagentStop hook 扫 `.ready` 跑计算层校验。计算通过后会 block 回来，要求你读 `.semantic_sample.json` 做语义自检（type_match / single_unit / genuine_digest / self_contained）。
 - Codex：安装并信任 hooks 后，同样由 SubagentStop/Stop hook 自动触发 `loom-hook`。只有 hooks 未安装或未触发时，才手动调 `loom-admin stop-check-pending` 兜底。
+
+**单书 THINK 的语义自检另有三条必答项**（block-back 会列出，逐条确认后才能 commit-ready）：
+a. 每条 think-skip 的理由都建立在真实 skim/深读上且成立——空泛或凭标题跳过的，回去补读或改为深挖；
+b. 挑出的深挖对象确是全书最有外联价值的 L2——对照 `loom think-coverage $TASK_ID` 清单自问"这个主题里真的没有更值得深挖的吗"；
+c. 每张带 `--from-topics` 的产出忠实承接了声称覆盖的主题——只沾边的，去掉 from-topics 或充实内容。
 
 通过后：
 

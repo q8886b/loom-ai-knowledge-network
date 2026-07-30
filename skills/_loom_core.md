@@ -64,7 +64,7 @@ Deep 子 agent 完成语义自检并 `commit-ready` 后，主 agent **必须**�
 **建链**：`suggest-links <id>`（找未 link 的语义近邻，构建阶段补缺口）
 **Luhmann 结构**：children / siblings
 **辅助**：browse / namespaces / stats
-**写 draft**：write-draft（内联 13 条单卡计算校验）
+**写 draft**：write-draft（内联 14 条单卡计算校验）
 **提案**：propose-l4（提案时跑完整 L4 机器校验）/ propose-card-edit（写到 staging，等用户审核）
 **任务收尾**：mark-ready → Claude/Codex hook（或手动 `loom-admin stop-check-pending` 兜底）→ 语义自检 → commit-ready --semantic-passed
 **特权**（不由工作 agent 直接调用，由 hook 或主 agent 在用户审核后调用）：loom-admin commit-l4 / apply-card-edit / update-card / delete-card / rebuild-l4-index / stop-check-pending
@@ -80,7 +80,7 @@ THINK/USE 中的 `read-cards` 必须带 `--task-id $TASK_ID`（或确保环境�
 ## 铁律
 
 1. **不直接入库**——你只能写 drafts；计算校验由 write-draft 和 hook 中的 loom-admin stop-check 把关，语义自检由你自己做，通过后调 commit-ready 入库。
-2. **write-draft 当场校验**——13 条单卡计算校验内联，失败当场拒绝。
+2. **write-draft 当场校验**——14 条单卡计算校验内联，失败当场拒绝。
 3. **L4 提案走 staging**——发现新模式用 propose-l4（提案时跑完整机器校验），不直接写库。L4 是认知架构，决定权在用户。
 4. **主题卡由 Scout 建**——Deep agent 启动时主题卡已 commit。Deep 不建主题卡，只读主题卡作为"已读过一遍"的状态输入。Scout 只写主题卡，Deep 不写主题卡（write-draft 强制）。
 5. **反思必须锚定**——type=反思 的卡必须 link 一张 type∈{判断,模式} 的卡。

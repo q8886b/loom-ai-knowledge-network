@@ -370,6 +370,15 @@ Skill 必须把“让 Loom 已有认知尽可能参与对问题的重构”定�
 
 **plan.json 不包含校验逻辑**——校验是 hook 代码的职责，不是任务描述的职责。约束声明和执行代码物理上在一起，无法漂移。
 
+**THINK 任务另有 `think_state.json`（单书覆盖清单）**。它不是第二份任务合约，而是一本账：记录"这本书有哪些主题、每个主题被哪张产出承接、或为什么明确不深挖"。
+
+- `think-init <task_id> --goal=X --materials=<domain>:<book>`：从该书的全部已入库主题卡（type=主题）生成覆盖清单，写入 `/tmp/loom_task/<task_id>/think_state.json`。主题是**验收单位**，不是执行单元——不规定顺序、不强制逐个处理。
+- 探索过程完全自由（004 双路线螺旋不变），think_state 不干预；agent 通读主题清单后自己从 L2 血肉里挑深挖对象。
+- `think-skip <task_id> <主题卡id> --reason=X`：对明确不深挖的主题记一句具体理由（必须建立在 skim/深读基础上，理由是否成立由语义层判）。
+- `write-draft / propose-l4 / propose-card-edit` 带 `--from-topics=<主题卡id,...>`：声明该产出承接了哪些主题；CLI 校验主题 id 必须在本任务 think_state 清单里。
+- 收尾时 stop-check 整批校验覆盖账（§5.4）：每个主题要么被至少一张产出 `--from-topics` 承接，要么有 think-skip 理由；不允许静默跳过。
+- 单书 THINK 是单 agent 场景，没有 worker 分配、session 绑定、退出拦截这些并发机制；多材料并发是后续独立设计，不在此规格内。
+
 ### 4.2 为什么不预测卡数
 
 004 密度门禁第 1 条：**密度由材料的认知结构决定，不由字符数决定。**
@@ -418,20 +427,28 @@ Loom 工具暴露给 Claude 的方式是 **CLI 脚本**（延续老 tools.py 的
 ```
 bin/loom import-source <source_id> --title=X --path=<md>  # 注册 L1 source card（layer=L1,type=source），008 §24
 bin/loom read-source <id|path>                 # 读 L1 source card 全文（id 优先；path 兜底未导入文件），008 §14
-bin/loom write-draft <task_id> <card_id>       # 写 draft（内联 13 条计算校验 + Scout/Deep phase 前置拦截）
+bin/loom write-draft <task_id> <card_id>       # 写 draft（内联 14 条计算校验 + Scout/Deep phase 前置拦截）
             --type=<type> --source=<L1 source card id|原始 path> --links=<a,b>
             --content-file=<file>
             [--layer=<L1|L2|L3|L4>]           # 可选；省略时从 plan.json.layer 推断（L2_light 自动归一为 L2）
             [--origin=human]                  # 仅在人明确要求人工沉淀时传；默认 ai，不支持 tags
+            [--from-topics=<主题卡id,...>]     # THINK 任务：声明承接哪些主题（须在 think_state 清单内）
 bin/loom read-cards <id> [<id>...]             # 读一张或多张卡（bump use_count + 记录 read trace / L4 引用归属 task）
             [--task-id=<task_id>]              #   L1 卡默认返回 snippet/content_size，不返回全文（008 §23）
 bin/loom search <query> [--tag=<a,b>]          # tag 多选按 AND 过滤；tag 不参与排序
 bin/loom orient                                # 启动时定位——读立体目录（namespace 全貌 + L4 含命题摘要）
 bin/loom read-l4-index                         # 思考中周期性重读 L4（轻量，仅标题列表）
+bin/loom think-init <task_id> --goal=X         # 单书 THINK：从该书主题卡生成覆盖清单（§4.1）
+            --materials=<domain>:<book>
+bin/loom think-skip <task_id> <主题卡id>        # 对明确不深挖的主题记具体理由（须先 skim/深读）
+            --reason=X
+bin/loom think-coverage <task_id>              # 查看当前覆盖账：各主题 → 承接产出 / skip 理由 / 未结
 bin/loom propose-l4 <task_id> <card_id> --title=X  # L4 新模式提案（agent 显式指定 gen:<卢曼ID>；提案时跑完整机器校验，写 staging 不阻断任务）
             --content-file=X --related=<a,b> --type=<模式|判断|反思>
+            [--from-topics=<主题卡id,...>]
 bin/loom propose-card-edit <task_id> <card_id>  # 已有卡修正提案（L2/L3/L4 通用，写入 staging 完整新版）
             --content-file=X --type=<修正|补充|重写|更新> [--related=<新增link1,新增link2>]
+            [--from-topics=<主题卡id,...>]
 bin/loom mark-ready <task_id>                  # 标记 drafts 完成（stop-check 扫描入口）
 bin/loom commit-ready <task_id> --semantic-passed  # 语义质检通过后整批入库
 ```
@@ -535,7 +552,7 @@ loom-admin rebuild-tag-index                        # 从 cards.tags 重建 card
 2. drafts mtimes 与 `.computed_passed.json` 记录一致（draft 没在计算层通过后被改）
 3. 子 agent 显式声明 `--semantic-passed`（完成语义自检的 flag）
 
-commit-ready 做的是"防篡改"校验（mtime 比对），不是内容校验——内容校验已经在 write-draft（13 单卡）和 stop-check（4 整批）跑过。这是 ch10 最小权限的工程化：**入库只能走这条窄路**，agent 不能绕过计算层 + 语义层直接污染库。
+commit-ready 做的是"防篡改"校验（mtime 比对），不是内容校验——内容校验已经在 write-draft（14 单卡）和 stop-check（4 整批）跑过。这是 ch10 最小权限的工程化：**入库只能走这条窄路**，agent 不能绕过计算层 + 语义层直接污染库。
 
 ### 5.3 计算型校验内联在 write-draft
 
@@ -573,7 +590,7 @@ commit-ready 做的是"防篡改"校验（mtime 比对），不是内容校验�
 - **父卡不是目录占位**：父级存在门禁只保证树闭合，不授权创建空父卡；父卡仍须通过独立认知单元和内容密度校验。
 - **source 按 layer 区分**：L1.source 是 markdown 路径；L2.source 固定指向 L1 source card id（008 §17/§21）；L3/L4 不强制 source，依据靠 links。
 
-这 13 条都是**确定性检查**（集合/正则/SQL），无歧义，零启发式。改校验 = 改脚本 + git 提交。
+这 14 条都是**确定性检查**（集合/正则/SQL），无歧义，零启发式。改校验 = 改脚本 + git 提交。
 
 注意：老 001 的"列举型检测"（"第\d+条"≥3 次）这里**不保留**——001 自己测出来误报率 40%，价值低；列举型让语义层判。
 
@@ -587,8 +604,10 @@ commit-ready 做的是"防篡改"校验（mtime 比对），不是内容校验�
 | L2 卡 link 主题卡 | 非 topic 的 L2 卡 links 必须含主题卡：scout 跳过；deep 校 plan.topic_card 存在且已 commit | stop-check |
 | id 整批唯一 | 同 task drafts 内无撞 id（兜底单卡层 card_id_unique，防并行子 agent 撞）| stop-check |
 | 无重复卡 | 同 task drafts 内 difflib 相似度 > 0.7 拒绝（防切碎/抄录型重复）| stop-check |
+| THINK 主题覆盖 | 任务有 think_state.json 时：每个主题要么被 ≥1 张产出 `--from-topics` 承接，要么有 think-skip 理由；不允许静默跳过 | stop-check |
+| THINK 读过才算数 | 任务有 think_state.json 时：drafts 中 L3 卡 link 的每张 L2 必须出现在本任务 `.read_trace.jsonl`（凭标题 link 视为未读）| stop-check |
 
-**注意**：`无重复卡` 是整批层**唯一的启发式**（difflib 0.7 阈值）——单卡层 13 条零启发式，整批层允许这一条，因为"重复"本质是相对判断。
+**注意**：`无重复卡` 是整批层**唯一的启发式**（difflib 0.7 阈值）——单卡层 14 条零启发式，整批层允许这一条，因为"重复"本质是相对判断。
 
 主题卡是 L2 消化的入口（§2.5），必须由 Scout 阶段先建立并 commit。Scout/Deep 的 phase 约束（scout 只写主题卡、deep 不写主题卡）由 write-draft **前置拦截**（read plan.phase → type 不符当场拒），不等 stop-check。Deep 阶段必须在 plan.json 中显式声明 `topic_card`，整批校验在 conn 可用时复核它真实存在且 type=主题。
 
@@ -659,7 +678,7 @@ L1 source card 纳入 search、read-cards、read-source，但 **agent 命令默�
   ↓
 SubagentStop/Stop hook（`loom-hook` command）触发：
   1. 扫所有 .ready 但未 done 的 task
-  2. 对每 task 跑计算层校验（12 单卡 + 4 整批）
+  2. 对每 task 跑计算层校验（14 单卡 + 4 整批；THINK 任务另有 §5.4 两条覆盖校验）
   3. 计算层失败 → 输出 decision:block + 错误清单
      → runtime 让 agent 继续修 draft
   4. 计算层通过 → 写两个文件：
@@ -674,6 +693,15 @@ agent 被 block 唤回（不是退出）：
      genuine_digest / self_contained）
   3. 失败 → 修 draft → 重新 mark-ready（重跑计算层 + 重新抽样）
   4. 通过 → 调 loom commit-ready <task_id> --semantic-passed
+  ↓
+  THINK 任务（存在 think_state.json）的语义自检另有三条必答项，
+  与四判据同属 block-back 强制确认清单，不确认不得 commit-ready：
+  a. think-skip 的理由是否都建立在真实 skim/深读上且成立
+     （凭标题跳过或理由空泛 → 回去补读或改为深挖）
+  b. 挑出的深挖对象是否真是全书最有外联价值的 L2——对照主题
+     清单自问"这个主题里真的没有更值得深挖的吗"
+  c. 每张带 --from-topics 的产出是否忠实承接了声称覆盖的主题
+     （只沾边 → 去掉该 from-topics 或充实内容）
   ↓
 commit-ready 验证：
   - .computed_passed.json 存在（计算层跑过）
@@ -1005,7 +1033,7 @@ L4 卡的新增/升级不自动入库，走 ch13 §13.5 的"观察-提案-审核
    - Claude Code / Codex 自动触发 SubagentStop 或 Stop hook（`loom-hook`）
 
    随后：
-   - 计算层：扫 drafts 跑 13 条单卡计算校验 + 4 条整批校验
+   - 计算层：扫 drafts 跑 14 条单卡计算校验 + 4 条整批校验
      失败 → decision:block + 错误清单 → agent 修 draft
    - 计算层通过 → 写 .computed_passed.json + .semantic_sample.json
      然后要求 agent 做语义自检

@@ -62,16 +62,24 @@ loom skim <card_id>
 loom wander <card_id> [--steps=N]
 loom suggest-links <card_id> [--top=N]
 
+# 单书 THINK 覆盖账
+loom think-init <task_id> --goal=<目标> --materials=<domain>:<book>
+loom think-skip <task_id> <主题卡id> --reason=<不深挖的具体理由>
+loom think-coverage <task_id>
+
 # 写 draft，不直接入库
 loom write-draft <task_id> <card_id> \
   --type=<type> --title=<title> --source=<source> \
-  [--layer=L1|L2|L3|L4] [--links=a,b] [--content-file=file]
+  [--layer=L1|L2|L3|L4] [--links=a,b] [--content-file=file] \
+  [--from-topics=<主题卡id,...>]
 
 # 提案
 loom propose-l4 <task_id> gen:<卢曼ID> \
-  --title=<title> --type=模式|判断|反思 --related=a,b --content-file=file
+  --title=<title> --type=模式|判断|反思 --related=a,b --content-file=file \
+  [--from-topics=<主题卡id,...>]
 loom propose-card-edit <task_id> <card_id> \
-  --type=修正|补充|重写|更新 [--related=a,b] --content-file=file
+  --type=修正|补充|重写|更新 [--related=a,b] --content-file=file \
+  [--from-topics=<主题卡id,...>]
 
 # 收尾
 loom mark-ready <task_id>
