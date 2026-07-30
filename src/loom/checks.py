@@ -68,7 +68,7 @@ def _link_targets_exist(conn: sqlite3.Connection,
 
 
 # ---------------------------------------------------------------------------
-# Per-card checks (12) — run inside write-draft
+# Per-card checks — run inside write-draft
 # ---------------------------------------------------------------------------
 
 ENUMERATION_PATTERN = re.compile(r"第\d+条")
@@ -152,6 +152,24 @@ def check_min_length(d: CardDraft) -> CheckResult:
         "min_length",
         ok,
         "" if ok else f"content 仅 {len(d.content.strip())} 字，< {store.MIN_CONTENT_LEN}（疑似目录型）",
+    )
+
+
+def check_no_redundant_title_heading(d: CardDraft) -> CheckResult:
+    """Card mirrors add their own H1; body must not repeat the exact title."""
+    first_line = next(
+        (line.strip() for line in d.content.splitlines() if line.strip()),
+        "",
+    )
+    repeated = first_line in {f"# {d.title.strip()}", d.title.strip()}
+    return CheckResult(
+        "no_redundant_title_heading",
+        not repeated,
+        (
+            ""
+            if not repeated
+            else "content 首行重复 card title；卡片镜像会自动生成 H1，请从正文命题开始"
+        ),
     )
 
 
@@ -407,6 +425,7 @@ PER_CARD_CHECKS = [
     check_luhmann_parent_exists,
     check_layer_type_matrix,
     check_min_length,
+    check_no_redundant_title_heading,
     check_links_exist,
     check_l3_links_lower,
     check_l4_links_lower,
@@ -420,7 +439,7 @@ PER_CARD_CHECKS = [
 
 def run_per_card_checks(d: CardDraft, conn: sqlite3.Connection,
                          drafts: list[CardDraft]) -> list[CheckResult]:
-    """Run all 13 per-card checks. Returns list of results (all of them).
+    """Run all 14 per-card checks. Returns list of results (all of them).
 
     注：source_real 对 L4 提案（无 source）跳过；propose-l4 调用方需自行排除。
     """
@@ -430,6 +449,7 @@ def run_per_card_checks(d: CardDraft, conn: sqlite3.Connection,
         check_luhmann_parent_exists(d, conn, drafts),
         check_layer_type_matrix(d),
         check_min_length(d),
+        check_no_redundant_title_heading(d),
         check_links_exist(d, conn, drafts),
         check_l3_links_lower(d, conn, drafts),
         check_l4_links_lower(d, conn, drafts),
