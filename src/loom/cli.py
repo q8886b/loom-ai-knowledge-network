@@ -19,7 +19,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from . import store, embed, checks
+from . import store, embed, checks, think_state
 
 
 # ---------------------------------------------------------------------------
@@ -94,6 +94,74 @@ def _trace_task_id(args) -> str:
     batch agents run concurrently.
     """
     return (getattr(args, "task_id", None) or os.environ.get("LOOM_TASK_ID") or "").strip()
+
+
+def _handle_from_topics(args, task_id: str, output_id: str, *, required: bool) -> str | None:
+    """--from-topics 落账（005 §4.1）。返回错误信息或 None。
+
+    THINK 任务（存在 think_state.json）的 L3 draft / L4 提案必须声明承接的
+    主题；其余产出可选。非 THINK 任务忽略该参数。
+    """
+    from_topics = [
+        s.strip() for s in (getattr(args, "from_topics", None) or "").split(",") if s.strip()
+    ]
+    if think_state.load(task_id) is None:
+        return None
+    if required and not from_topics:
+        return (
+            f"THINK 任务的产出必须用 --from-topics 声明承接的主题卡"
+            f"（loom think-coverage {task_id} 查看覆盖账）；"
+            f"与该产出无关的主题用 loom think-skip 记理由"
+        )
+    if from_topics:
+        try:
+            think_state.record_output(task_id, output_id, from_topics)
+        except think_state.ThinkStateError as e:
+            return str(e)
+    return None
+
+
+def cmd_think_init(args) -> int:
+    materials = [m.strip() for m in (args.materials or "").split(",") if m.strip()]
+    if not materials:
+        return _err("think-init 需要 --materials=<domain>:<book>[,<domain>:<book>...]")
+    with store.connect() as conn:
+        try:
+            state = think_state.init(args.task_id, args.goal, materials, conn)
+        except think_state.ThinkStateError as e:
+            return _err(str(e))
+    _print_json({
+        "status": "ok",
+        "task_id": args.task_id,
+        "goal": state["goal"],
+        "topics_total": len(state["topics"]),
+        "topics": [
+            {"id": tid, "title": t["title"]}
+            for tid, t in sorted(state["topics"].items())
+        ],
+        "hint": (
+            "通读主题清单，从 L2 血肉（非主题卡）中挑最有外联价值的深挖对象；"
+            "明确不深挖的主题逐个 loom think-skip 记具体理由"
+        ),
+    })
+    return 0
+
+
+def cmd_think_skip(args) -> int:
+    try:
+        think_state.skip(args.task_id, args.topic_id, args.reason or "")
+    except think_state.ThinkStateError as e:
+        return _err(str(e))
+    _print_json({"status": "ok", "task_id": args.task_id, "skipped": args.topic_id})
+    return 0
+
+
+def cmd_think_coverage(args) -> int:
+    try:
+        _print_json(think_state.coverage(args.task_id))
+    except think_state.ThinkStateError as e:
+        return _err(str(e))
+    return 0
 
 
 def _append_read_trace(task_id: str, cards: list[dict[str, Any]],
@@ -629,6 +697,11 @@ def cmd_write_draft(args) -> int:
         print(json.dumps(out, ensure_ascii=False, indent=2), file=sys.stderr)
         return 2  # non-zero to signal Claude Code / caller
 
+    # THINK 任务：--from-topics 落账（L3 draft 必须声明，其余可选）
+    topic_err = _handle_from_topics(args, task_id, draft.id, required=(draft.layer == "L3"))
+    if topic_err:
+        return _err(topic_err)
+
     # All passed — write the draft file
     drafts_dir = Path(f"/tmp/loom_task/{task_id}/drafts")
     drafts_dir.mkdir(parents=True, exist_ok=True)
@@ -706,6 +779,11 @@ def cmd_propose_l4(args) -> int:
         }, ensure_ascii=False, indent=2), file=sys.stderr)
         return 2
 
+    # THINK 任务：L4 提案必须 --from-topics 落账
+    topic_err = _handle_from_topics(args, task_id, card_id, required=True)
+    if topic_err:
+        return _err(topic_err)
+
     staging_dir = Path(f"/tmp/loom_task/{task_id}/staging")
     staging_dir.mkdir(parents=True, exist_ok=True)
     proposal_id = f"prop_{uuid.uuid4().hex[:8]}"
@@ -768,6 +846,11 @@ def cmd_propose_card_edit(args) -> int:
             ],
         }, ensure_ascii=False, indent=2), file=sys.stderr)
         return 2
+
+    # THINK 任务：card-edit 提案可选 --from-topics 落账（修正不算主题承接，不强制）
+    topic_err = _handle_from_topics(args, task_id, args.card_id, required=False)
+    if topic_err:
+        return _err(topic_err)
 
     staging_dir = Path(f"/tmp/loom_task/{task_id}/staging")
     staging_dir.mkdir(parents=True, exist_ok=True)
@@ -1320,7 +1403,10 @@ def cmd_stop_check(args) -> int:
                     store.log_reject(task_id, d.id, r.check_id, r.reason, "stop_hook")
         batch_results = checks.run_batch_checks(drafts, plan, conn)
         for r in batch_results:
-            if not r.passed and "跳过" not in r.reason:
+            # "跳过"过滤只适用于 L2 phase 检查的兼容分支（scout/非L2任务的兜底文案），
+            # 不能按子串匹配所有检查——think_coverage 的失败理由天然包含"跳过"
+            legacy_skip = r.check_id in ("l2_has_topic", "l2_links_topic") and "跳过" in r.reason
+            if not r.passed and not legacy_skip:
                 all_failures.append({"card": "(batch)", "check": r.check_id, "reason": r.reason})
                 store.log_reject(task_id, None, r.check_id, r.reason, "stop_hook")
 
@@ -1379,6 +1465,17 @@ def cmd_stop_check(args) -> int:
         else:
             l4_warn = f"\n[L4 引用统计] 本次引用 {len(l4_refs)} 张 L4 卡: {l4_refs}"
 
+    # THINK 任务：语义自检另有三条必答项（005 §6.3），与四判据同属强制确认清单
+    think_warn = ""
+    if think_state.load(task_id) is not None:
+        think_warn = (
+            f"\n[THINK 语义必答] 除四判据外还须逐条确认："
+            f"a) think-skip 的理由都建立在真实 skim/深读上且成立（空泛或凭标题跳过 → 回去补读）；"
+            f"b) 深挖对象确为全书最有外联价值的 L2——对照 loom think-coverage {task_id} 的清单自问；"
+            f"c) 每张 --from-topics 产出忠实承接了声称覆盖的主题（只沾边 → 去掉 from-topics 或充实内容）。"
+            f"任一不成立 → 修正后重新 mark-ready。"
+        )
+
     rejected_file = Path(f"/tmp/loom_task/{task_id}/.rejected.json")
     rejected_file.write_text(
         json.dumps({
@@ -1393,6 +1490,7 @@ def cmd_stop_check(args) -> int:
                     f"若失败，修 draft 后重新 mark-ready；若通过，调用 "
                     f"loom commit-ready {task_id} --semantic-passed。"
                     f"{l4_warn}"
+                    f"{think_warn}"
                 ),
             }],
         }, ensure_ascii=False, indent=2),
@@ -1993,7 +2091,25 @@ def _build_parser(entrypoint: str = "loom") -> argparse.ArgumentParser:
     sp.add_argument("--links")
     sp.add_argument("--content")
     sp.add_argument("--content-file")
+    sp.add_argument("--from-topics", help="THINK 任务：声明承接的主题卡 id（逗号分隔）；L3 draft 必填")
     sp.set_defaults(func=cmd_write_draft)
+
+    # THINK 覆盖账（005 §4.1）
+    sp = sub.add_parser("think-init", help="单书 THINK：从该书主题卡生成覆盖清单")
+    sp.add_argument("task_id")
+    sp.add_argument("--goal", required=True)
+    sp.add_argument("--materials", required=True, help="<domain>:<book>[,<domain>:<book>...]")
+    sp.set_defaults(func=cmd_think_init)
+
+    sp = sub.add_parser("think-skip", help="对明确不深挖的主题记具体理由")
+    sp.add_argument("task_id")
+    sp.add_argument("topic_id")
+    sp.add_argument("--reason", required=True)
+    sp.set_defaults(func=cmd_think_skip)
+
+    sp = sub.add_parser("think-coverage", help="查看覆盖账：各主题 → 承接产出 / skip 理由 / 未结")
+    sp.add_argument("task_id")
+    sp.set_defaults(func=cmd_think_coverage)
 
     # proposals
     sp = sub.add_parser("propose-l4", help="L4 新模式提案（agent 显式指定 gen:<卢曼ID>）")
@@ -2003,6 +2119,7 @@ def _build_parser(entrypoint: str = "loom") -> argparse.ArgumentParser:
     sp.add_argument("--content")
     sp.add_argument("--content-file")
     sp.add_argument("--related")
+    sp.add_argument("--from-topics", help="THINK 任务：声明承接的主题卡 id（逗号分隔）")
     sp.add_argument("--type", default="模式",
                     choices=["模式", "判断", "反思"],
                     help="L4 type（默认模式）")
@@ -2015,6 +2132,7 @@ def _build_parser(entrypoint: str = "loom") -> argparse.ArgumentParser:
     sp.add_argument("--content")
     sp.add_argument("--content-file")
     sp.add_argument("--related", help="审核通过后追加的 links，逗号分隔；提案时会随完整新版一起校验")
+    sp.add_argument("--from-topics", help="THINK 任务：可选，声明承接的主题卡 id")
     sp.add_argument("--type", default="修正",
                     choices=["修正", "补充", "重写", "更新"])
     sp.set_defaults(func=cmd_propose_card_edit)

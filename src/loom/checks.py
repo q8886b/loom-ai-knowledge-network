@@ -9,6 +9,7 @@ All checks are pure functions returning a CheckResult. No LLM, no side effects.
 """
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 from dataclasses import dataclass, field
@@ -624,6 +625,70 @@ def check_no_duplication(drafts: list[CardDraft]) -> CheckResult:
 BATCH_CHECKS = [check_l2_has_topic, check_l2_links_topic, check_no_duplication, check_id_unique]
 
 
+# ---------------------------------------------------------------------------
+# THINK 覆盖校验（005 §4.1/§5.4）——仅当任务存在 think_state.json 时生效
+# ---------------------------------------------------------------------------
+
+def check_think_coverage(drafts: list[CardDraft], plan: dict[str, Any]) -> CheckResult:
+    """每个主题要么被 ≥1 张产出 --from-topics 承接，要么有 think-skip 理由。"""
+    from . import think_state
+
+    task_id = plan.get("task_id", "")
+    if not task_id or think_state.load(task_id) is None:
+        return CheckResult("think_coverage", True)
+    cov = think_state.coverage(task_id)
+    if not cov["uncovered"]:
+        return CheckResult("think_coverage", True)
+    lines = [f"  - {r['topic']}（{r['title']}）" for r in cov["uncovered"]]
+    return CheckResult(
+        "think_coverage", False,
+        f"{len(cov['uncovered'])}/{cov['total']} 个主题既无产出承接也无 skip 理由，"
+        f"不允许静默跳过：\n" + "\n".join(lines) +
+        "\n对明确不深挖的主题用 loom think-skip 记理由；否则写产出并 --from-topics 承接。",
+    )
+
+
+def check_think_read_trace(
+    drafts: list[CardDraft],
+    plan: dict[str, Any],
+    conn: sqlite3.Connection | None = None,
+) -> CheckResult:
+    """THINK 任务中 L3 draft link 的每张 L2 必须在本任务 read trace 里出现过。"""
+    from . import think_state
+
+    task_id = plan.get("task_id", "")
+    if not task_id or think_state.load(task_id) is None or conn is None:
+        return CheckResult("think_read_trace", True)
+
+    trace_file = Path(f"/tmp/loom_task/{task_id}/.read_trace.jsonl")
+    read_ids: set[str] = set()
+    if trace_file.exists():
+        for line in trace_file.read_text(encoding="utf-8").splitlines():
+            try:
+                read_ids.update(json.loads(line).get("card_ids", []))
+            except (json.JSONDecodeError, AttributeError):
+                continue
+
+    unread: list[str] = []
+    for d in drafts:
+        if d.layer != "L3":
+            continue
+        for target in d.links:
+            row = conn.execute("SELECT layer FROM cards WHERE id=?", (target,)).fetchone()
+            # 同批 draft 里的 L2 也算已读（作者自己写的）；库中 L2 必须有 read trace
+            if row is None or row["layer"] != "L2":
+                continue
+            if target not in read_ids:
+                unread.append(f"  - {d.id} link 了 {target}，但本任务没有 read-cards 过它")
+    if unread:
+        return CheckResult(
+            "think_read_trace", False,
+            "L3 卡 link 了未深读的 L2（凭标题 link 视为未读）：\n" + "\n".join(unread) +
+            f"\n先 loom read-cards <id> --task-id {task_id} 深读，再决定 link 与否。",
+        )
+    return CheckResult("think_read_trace", True)
+
+
 def run_batch_checks(
     drafts: list[CardDraft],
     plan: dict[str, Any],
@@ -633,9 +698,11 @@ def run_batch_checks(
         check_l2_has_topic(drafts, plan),
         check_l2_links_topic(drafts, plan, conn),
         check_no_duplication(drafts),
+        check_think_coverage(drafts, plan),
     ]
     if conn is not None:
         results.append(check_id_unique(drafts, conn))
+        results.append(check_think_read_trace(drafts, plan, conn))
     return results
 
 
