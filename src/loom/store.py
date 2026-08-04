@@ -12,6 +12,8 @@ Tables:
   loom_meta     - small key/value metadata such as embedding_dim
   task_trace    - task execution log
   reject_log    - write-draft rejection log (for density gate statistics)
+  card_annotations - human reading notes per card (TUI/阅读批注；一卡一条)
+  reading_progress - reading position per scope ('ns' or 'ns:book')
 
 废弃表（init_db 检测到自动 drop）：
   l1_files      - 旧 L1 活跃度旁路表（已合并到 cards 统一活跃度）
@@ -145,7 +147,7 @@ def connect(db_path: Path = DB_PATH):
 # init_db 启动时检查 PRAGMA user_version：匹配则跳过所有 CREATE/迁移；不匹配才跑。
 # 这样首次跑会建 schema + 跑迁移；后续启动 <1ms 跳过。
 # 将来 schema 变更：1) 改 schema 代码 2) bump SCHEMA_VERSION 3)（可选）加迁移函数。
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 def init_db(db_path: Path = DB_PATH) -> None:
@@ -261,6 +263,20 @@ def init_db(db_path: Path = DB_PATH) -> None:
         # v4: card origin + human-maintained tags. card_tags is a derived index.
         _migrate_add_column_if_missing(conn, "cards", "origin", "TEXT NOT NULL DEFAULT 'ai'")
         _migrate_add_column_if_missing(conn, "cards", "tags", "TEXT NOT NULL DEFAULT '[]'")
+        # v6: 人类阅读批注（TUI）：note 一卡一条；阅读进度按 scope 记位置
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS card_annotations (
+                card_id    TEXT PRIMARY KEY,
+                note       TEXT NOT NULL DEFAULT '',
+                updated_at REAL NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS reading_progress (
+                scope        TEXT PRIMARY KEY,
+                last_card_id TEXT NOT NULL DEFAULT '',
+                read_ids     TEXT NOT NULL DEFAULT '[]',
+                updated_at   REAL NOT NULL
+            );
+        """)
         _migrate_embedding_meta(conn)
         _ensure_cards_vec(conn)
         conn.executescript("""
@@ -541,6 +557,152 @@ def _tag_filter_sql(tags: list[str] | None, alias: str = "c") -> tuple[str, list
         )
         params.append(tag)
     return (" AND " + " AND ".join(clauses), params) if clauses else ("", [])
+
+
+# ---------------------------------------------------------------------------
+# Reading annotations / progress (human notes; written by TUI, read-only for agents)
+# ---------------------------------------------------------------------------
+
+READ_IDS_CAP = 20000
+
+
+def set_annotation(card_id: str, note: str) -> dict[str, Any]:
+    """Upsert the human note on a card. Empty note deletes the annotation row
+    (标签不打这里——标签走 cards.tags / update_card_tags)。"""
+    note = (note or "").strip()
+    with connect() as conn:
+        row = conn.execute("SELECT 1 FROM cards WHERE id=?", (card_id,)).fetchone()
+        if row is None:
+            raise ValueError(f"card not found: {card_id}")
+        ts = now()
+        if not note:
+            conn.execute("DELETE FROM card_annotations WHERE card_id=?", (card_id,))
+            return {"card_id": card_id, "note": "", "updated_at": None}
+        conn.execute(
+            """INSERT INTO card_annotations(card_id, note, updated_at)
+               VALUES (?, ?, ?)
+               ON CONFLICT(card_id) DO UPDATE SET
+                 note=excluded.note, updated_at=excluded.updated_at""",
+            (card_id, note, ts),
+        )
+        row = conn.execute(
+            "SELECT * FROM card_annotations WHERE card_id=?", (card_id,)
+        ).fetchone()
+    return dict(row)
+
+
+def get_annotation(card_id: str) -> dict[str, Any] | None:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM card_annotations WHERE card_id=?", (card_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def list_annotations() -> list[dict[str, Any]]:
+    """标注卡聚合列表：有标签（cards.tags 非空）或有笔记（card_annotations）的卡。
+
+    排序按最近变化（标签 updated_at 与笔记 updated_at 取大）倒序，事后集中处理
+    时"最近标注"在最上面。
+    """
+    with connect() as conn:
+        rows = conn.execute(
+            """SELECT c.id, c.title, c.type, c.layer, c.tags,
+                      a.note AS note, a.updated_at AS note_ts,
+                      MAX(c.updated_at, COALESCE(a.updated_at, 0)) AS ts
+               FROM cards c
+               LEFT JOIN card_annotations a ON a.card_id = c.id
+               WHERE c.tags != '[]' OR a.card_id IS NOT NULL
+               ORDER BY ts DESC"""
+        ).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["tags"] = parse_tags_json(d["tags"])
+            out.append(d)
+        return out
+
+
+def set_reading_progress(
+    scope: str, last_card_id: str = "", read_ids: list[str] | None = None
+) -> dict[str, Any]:
+    """Upsert reading progress for a scope ('ns' or 'ns:book').
+
+    read_ids=None 表示保持已有列表不变，只更新 last_card_id。
+    """
+    with connect() as conn:
+        existing = conn.execute(
+            "SELECT read_ids FROM reading_progress WHERE scope=?", (scope,)
+        ).fetchone()
+        if read_ids is None:
+            current = (
+                json.loads(existing["read_ids"]) if existing and existing["read_ids"] else []
+            )
+        else:
+            current = list(read_ids)
+        current = current[-READ_IDS_CAP:]
+        conn.execute(
+            """INSERT INTO reading_progress(scope, last_card_id, read_ids, updated_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(scope) DO UPDATE SET
+                 last_card_id=excluded.last_card_id,
+                 read_ids=excluded.read_ids,
+                 updated_at=excluded.updated_at""",
+            (scope, last_card_id, json.dumps(current, ensure_ascii=False), now()),
+        )
+        row = conn.execute(
+            "SELECT * FROM reading_progress WHERE scope=?", (scope,)
+        ).fetchone()
+    return dict(row)
+
+
+def mark_card_read(scope: str, card_id: str) -> dict[str, Any]:
+    """把卡加入 scope 的已读列表（去重、追加到尾部）并更新 last_card_id。"""
+    with connect() as conn:
+        existing = conn.execute(
+            "SELECT read_ids FROM reading_progress WHERE scope=?", (scope,)
+        ).fetchone()
+        ids = (
+            json.loads(existing["read_ids"]) if existing and existing["read_ids"] else []
+        )
+        ids = [i for i in ids if i != card_id]
+        ids.append(card_id)
+        ids = ids[-READ_IDS_CAP:]
+        conn.execute(
+            """INSERT INTO reading_progress(scope, last_card_id, read_ids, updated_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(scope) DO UPDATE SET
+                 last_card_id=excluded.last_card_id,
+                 read_ids=excluded.read_ids,
+                 updated_at=excluded.updated_at""",
+            (scope, card_id, json.dumps(ids, ensure_ascii=False), now()),
+        )
+        row = conn.execute(
+            "SELECT * FROM reading_progress WHERE scope=?", (scope,)
+        ).fetchone()
+    return dict(row)
+
+
+def get_reading_progress(scope: str) -> dict[str, Any] | None:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM reading_progress WHERE scope=?", (scope,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def list_reading_progress(ns: str | None = None) -> list[dict[str, Any]]:
+    """全部进度；ns 给定时只取该域（scope LIKE 'ns:%'）。"""
+    with connect() as conn:
+        if ns:
+            lower, upper = f"{ns}:", f"{ns};"
+            rows = conn.execute(
+                "SELECT * FROM reading_progress WHERE scope >= ? AND scope < ?",
+                (lower, upper),
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM reading_progress").fetchall()
+        return [dict(r) for r in rows]
 
 
 # ---------------------------------------------------------------------------

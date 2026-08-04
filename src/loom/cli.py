@@ -211,6 +211,65 @@ def _record_l4_refs(task_id: str, l4_refs_update: list[str]) -> None:
 # Commands
 # ---------------------------------------------------------------------------
 
+WORKBENCH_PORT = 8765
+
+
+def _ensure_workbench_backend() -> None:
+    """端口探测 workbench 后端；不活则后台拉起（常驻，不随 TUI 退出关闭）。
+
+    网页版与 TUI 共用同一后端。拉起失败（如依赖缺失）不阻塞 TUI——TUI 直连
+    数据库，不依赖 HTTP。
+    """
+    import socket
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(0.5)
+    try:
+        try:
+            sock.connect(("127.0.0.1", WORKBENCH_PORT))
+            return  # 已存活
+        except OSError:
+            pass
+    finally:
+        sock.close()
+
+    import pathlib
+    import subprocess
+    import sys
+
+    repo_root = pathlib.Path(__file__).resolve().parent.parent.parent
+    log = pathlib.Path(os.environ.get("LOOM_HOME", str(pathlib.Path.home() / ".loom")))
+    log = log / "workbench.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    with open(log, "a", encoding="utf-8") as f:
+        f.write(f"\n--- loom tui: 拉起 workbench 后端 ({time.strftime('%Y-%m-%d %H:%M:%S')}) ---\n")
+        f.flush()
+        subprocess.Popen(
+            [sys.executable, "-m", "workbench.backend.main"],
+            cwd=str(repo_root),
+            stdout=f,
+            stderr=f,
+            start_new_session=True,
+        )
+
+
+def cmd_tui(args) -> int:
+    """终端卡片阅读器（loom tui）。"""
+    import pathlib
+    import sys
+
+    # workbench 包在 repo 根（bin/loom 只把 src 加入 path）
+    repo_root = pathlib.Path(__file__).resolve().parent.parent.parent
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+    _ensure_workbench_backend()
+    from workbench.tui.app import WorkbenchApp
+
+    app = WorkbenchApp()
+    app.run()
+    return 0
+
+
 def cmd_import_source(args) -> int:
     """注册 L1 source card：layer=L1, type=source。
 
@@ -1998,6 +2057,10 @@ def _build_parser(entrypoint: str = "loom") -> argparse.ArgumentParser:
         sp.set_defaults(func=cmd_proposal_decision)
 
         return p
+
+    # tui（终端卡片阅读器）
+    sp = sub.add_parser("tui", help="终端卡片阅读器（TUI）")
+    sp.set_defaults(func=cmd_tui)
 
     # import-source（L1 source card 创建入口，§008-24）
     sp = sub.add_parser("import-source", help="注册 L1 source card（layer=L1,type=source）")

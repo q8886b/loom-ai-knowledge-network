@@ -44,6 +44,9 @@ docs/design/005...    Harness 规格
 loom on
 loom off
 
+# TUI 终端阅读器（终端内浏览/翻卡/搜索/批注，自动拉起 workbench 后端）
+loom tui
+
 # L1 原文
 loom import-source <source_id> --title=<title> --path=<md>
 loom read-source <L1_id|path>
