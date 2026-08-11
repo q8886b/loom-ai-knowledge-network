@@ -7,8 +7,8 @@ This guide gets a fresh Loom checkout to a working local setup.
 Loom targets Python 3.11.
 
 ```bash
-git clone git@github.com:q8886b/loom.git
-cd loom
+git clone git@github.com:q8886b/loom-ai-knowledge-network.git
+cd loom-ai-knowledge-network
 ./install.sh
 ```
 

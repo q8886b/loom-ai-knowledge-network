@@ -1,15 +1,16 @@
-# Loom: a cognitive harness for AI agents
+# Loom: AI knowledge network for agents
 
 **Language:** English | [简体中文](README.zh-CN.md)
 
-Loom is a local-first cognitive harness and knowledge network for Claude Code
-and Codex. It turns books, papers, web pages, video, and audio into typed,
-linked cards that AI agents can retrieve, reason over, and improve.
+Loom is an AI knowledge network and local-first cognitive harness for Claude
+Code and Codex. It turns books, papers, web pages, video, and audio into typed,
+linked knowledge that AI agents can retrieve, reason over, and improve.
 
-Use Loom as an inspectable AI second brain for research and personal knowledge
-management. Unlike a flat AI wiki, a query-time RAG pipeline, or a chat-history
-memory layer, Loom preserves how knowledge was digested, connected, synthesized,
-and reviewed before it re-enters an agent's context.
+Use Loom as an inspectable AI second brain for research, Zettelkasten-style
+note-making, and personal knowledge management. Its linked cards form a
+reviewable knowledge graph. Unlike a flat AI wiki, a query-time RAG pipeline,
+or a chat-history memory layer, Loom preserves how knowledge was digested,
+connected, synthesized, and reviewed before it re-enters an agent's context.
 
 ![Loom Workbench showing a focused cross-domain knowledge network](docs/assets/loom-workbench.png)
 
@@ -72,8 +73,8 @@ Requirements: macOS or Linux, Python 3.11+, Claude Code or Codex, and an
 embedding model.
 
 ```bash
-git clone https://github.com/q8886b/loom.git
-cd loom
+git clone https://github.com/q8886b/loom-ai-knowledge-network.git
+cd loom-ai-knowledge-network
 ./install.sh
 loom on
 ```

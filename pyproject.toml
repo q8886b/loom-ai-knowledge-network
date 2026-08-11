@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "loom-harness"
 version = "0.2.0"
-description = "A local-first cognitive harness that turns source material into layered knowledge networks for AI agents."
+description = "An AI knowledge network and local-first cognitive harness that turns source material into linked knowledge for agents."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
@@ -16,9 +16,13 @@ keywords = [
   "ai-agents",
   "agent-skills",
   "cognitive-harness",
+  "ai-knowledge-network",
+  "knowledge-network",
   "knowledge-graph",
+  "knowledge-base",
   "knowledge-management",
   "local-first",
+  "personal-knowledge-management",
   "second-brain",
   "zettelkasten",
 ]
@@ -38,10 +42,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/q8886b/loom"
-Documentation = "https://github.com/q8886b/loom/blob/main/docs/quickstart.md"
-Repository = "https://github.com/q8886b/loom"
-Issues = "https://github.com/q8886b/loom/issues"
+Homepage = "https://github.com/q8886b/loom-ai-knowledge-network"
+Documentation = "https://github.com/q8886b/loom-ai-knowledge-network/blob/main/docs/quickstart.md"
+Repository = "https://github.com/q8886b/loom-ai-knowledge-network"
+Issues = "https://github.com/q8886b/loom-ai-knowledge-network/issues"
 
 [project.optional-dependencies]
 workbench = [

@@ -1,14 +1,15 @@
-# Loom：AI Agent 的认知 Harness
+# Loom：面向 AI Agent 的知识网络与认知 Harness
 
 **语言：** [English](README.md) | 简体中文
 
-Loom 是面向 Claude Code 和 Codex 的本地优先认知 Harness 与知识网络。
-它把书籍、论文、网页、视频和音频转化为有认知类型、彼此相连的卡片，
+Loom 是面向 Claude Code 和 Codex 的 AI 知识网络与本地优先认知 Harness。
+它把书籍、论文、网页、视频和音频转化为有认知类型、彼此相连的知识，
 让 AI Agent 能够检索、推理，并在使用中继续改进这张网络。
 
-你可以把 Loom 用作可检查的 AI 第二大脑和个人知识管理系统。它不是扁平的
-AI Wiki、只在查询时拼接片段的 RAG，也不是保存聊天历史的 Agent Memory。
-Loom 保留知识如何被消化、连接、综合和审核，再把它带回 Agent 的 context。
+你可以把 Loom 用作可检查的 AI 第二大脑、Zettelkasten 式笔记系统和个人知识
+管理系统；相连的卡片构成可审核的知识图谱。它不是扁平的 AI Wiki、只在查询
+时拼接片段的 RAG，也不是保存聊天历史的 Agent Memory。Loom 保留知识如何被
+消化、连接、综合和审核，再把它带回 Agent 的 context。
 
 ![Loom Workbench 展示跨领域聚焦知识网络](docs/assets/loom-workbench.png)
 
@@ -67,8 +68,8 @@ USE 把网络带回 Agent context
 embedding 模型。
 
 ```bash
-git clone https://github.com/q8886b/loom.git
-cd loom
+git clone https://github.com/q8886b/loom-ai-knowledge-network.git
+cd loom-ai-knowledge-network
 ./install.sh
 loom on
 ```
