@@ -5,14 +5,23 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "loom-harness"
 version = "0.1.0"
-description = "A local-first cognitive harness for agent-readable layered card networks."
+description = "A local-first cognitive harness that turns source material into layered knowledge networks for AI agents."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
 authors = [
   { name = "Loom contributors" }
 ]
-keywords = ["agent", "knowledge", "zettelkasten", "sqlite", "harness"]
+keywords = [
+  "ai-agents",
+  "agent-skills",
+  "cognitive-harness",
+  "knowledge-graph",
+  "knowledge-management",
+  "local-first",
+  "second-brain",
+  "zettelkasten",
+]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
@@ -27,6 +36,12 @@ dependencies = [
   "certifi>=2023.0.0",
   "sqlite-vec>=0.1.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/q8886b/loom"
+Documentation = "https://github.com/q8886b/loom/blob/main/docs/quickstart.md"
+Repository = "https://github.com/q8886b/loom"
+Issues = "https://github.com/q8886b/loom/issues"
 
 [project.optional-dependencies]
 workbench = [
