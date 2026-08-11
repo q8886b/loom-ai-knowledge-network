@@ -72,7 +72,7 @@ def test_stop_check_rejects_duplicate_drafts_in_same_task(loom, loom_helpers):
     task = loom["task_id"]("batch_dup")
     loom["write_plan"](task, task="Duplicate L3 cards", layer="L3", skill="THINK")
     content = "这两张生成卡表达几乎完全相同的认知单元，用于验证整批重复检测会拒绝切碎或重复表达。"
-    for card_id in ("llm:3a", "llm:3b"):
+    for card_id in ("llm:31", "llm:32"):
         loom["run"]([
             "write-draft", task, card_id, "--layer=L3", "--type=判断",
             f"--title={card_id}", f"--links={l2_id}", f"--content={content}",

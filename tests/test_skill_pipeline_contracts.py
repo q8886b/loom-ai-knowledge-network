@@ -168,7 +168,7 @@ def test_think_stop_check_records_l4_warning_without_blocking_computed_state(loo
     loom["run"]([
         "write-draft",
         think,
-        "llm:1a",
+        "llm:1",
         "--layer=L3",
         "--type=判断",
         "--title=生成层判断",

@@ -10,7 +10,7 @@ def _first_proposal(task_id: str) -> Path:
     return proposals[0]
 
 
-def _commit_test_l4(loom, loom_helpers, card_id: str = "gen:1a") -> tuple[str, str, str]:
+def _commit_test_l4(loom, loom_helpers, card_id: str = "gen:1") -> tuple[str, str, str]:
     _llm_source, _llm_topic, llm_l2 = loom_helpers.write_committed_l2("llm", "l4obs")
     _med_source, _med_topic, med_l2 = loom_helpers.write_committed_l2("med", "l4obs")
     task = loom["task_id"]("commit_l4")
@@ -84,7 +84,7 @@ def test_think_stop_check_reports_l4_refs_when_read_trace_contains_l4(loom, loom
     loom["write_plan"](think, task="THINK with L4 refs", layer="L3", skill="THINK")
     loom["run"](["read-cards", l4_id, "--task-id", think])
     loom["run"]([
-        "write-draft", think, "llm:7a", "--layer=L3", "--type=判断",
+        "write-draft", think, "llm:7", "--layer=L3", "--type=判断",
         "--title=使用 L4 的生成判断", f"--links={llm_l2}",
         "--content=这张 L3 判断已经在任务 trace 中读取过 L4 模式，因此 stop-check 应该报告引用统计而不是零引用 WARN。",
     ])
@@ -102,18 +102,18 @@ def test_l4_proposal_requires_cross_domain_and_human_approval(loom, loom_helpers
     task = loom["task_id"]("proposal_negative")
 
     loom["run"]([
-        "propose-l4", task, "gen:8a", "--title=单领域提案", "--type=模式",
+        "propose-l4", task, "gen:81", "--title=单领域提案", "--type=模式",
         f"--related={llm_l2}",
         "--content=[探索期] 这个提案只锚定单一领域，应该在 proposal 阶段就被机器校验拒绝。",
     ], expected=2)
     assert "l4_links_lower" in loom_helpers.reject_check_ids(task)
 
-    l4_id, _llm_l2, _med_l2 = _commit_test_l4(loom, loom_helpers, "gen:8b")
+    l4_id, _llm_l2, _med_l2 = _commit_test_l4(loom, loom_helpers, "gen:82")
     pending_task = loom["task_id"]("pending_l4")
     _source2, _topic2, llm2 = loom_helpers.write_committed_l2("llm", "proposalb")
     _source3, _topic3, med2 = loom_helpers.write_committed_l2("med", "proposalb")
     loom["run"]([
-        "propose-l4", pending_task, "gen:8c", "--title=待审核提案", "--type=模式",
+        "propose-l4", pending_task, "gen:83", "--title=待审核提案", "--type=模式",
         f"--related={llm2},{med2}",
         "--content=[探索期] 这个提案机器校验通过但仍处于 pending，commit-l4 必须等待用户审核批准。",
     ])
@@ -121,14 +121,14 @@ def test_l4_proposal_requires_cross_domain_and_human_approval(loom, loom_helpers
     loom["run"](["commit-l4", str(pending)], admin=True, expected=1)
     loom["run"](["proposal-decision", str(pending), "--decision=approved"], admin=True)
     loom["run"](["commit-l4", str(pending)], admin=True)
-    assert loom["store"].get_card("gen:8c")["layer"] == "L4"
+    assert loom["store"].get_card("gen:83")["layer"] == "L4"
     loom["run"](["proposal-decision", str(pending), "--decision=rejected"], admin=True, expected=1)
 
     assert loom["store"].get_card(l4_id)["layer"] == "L4"
 
 
 def test_propose_card_edit_runs_machine_checks_before_human_review(loom, loom_helpers):
-    l4_id, _llm_l2, _med_l2 = _commit_test_l4(loom, loom_helpers, "gen:9a")
+    l4_id, _llm_l2, _med_l2 = _commit_test_l4(loom, loom_helpers, "gen:9")
     task = loom["task_id"]("bad_edit")
     loom["run"]([
         "propose-card-edit", task, l4_id, "--type=修正",
