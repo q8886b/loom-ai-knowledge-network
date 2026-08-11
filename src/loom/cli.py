@@ -262,12 +262,29 @@ def cmd_tui(args) -> int:
     repo_root = pathlib.Path(__file__).resolve().parent.parent.parent
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
+    _configure_textual_ime()
     _ensure_workbench_backend()
     from workbench.tui.app import WorkbenchApp
 
     app = WorkbenchApp()
     app.run()
     return 0
+
+
+def _configure_textual_ime() -> None:
+    """Keep iTerm2's IME in control of candidate-selection keys.
+
+    Textual's Kitty keyboard mode asks iTerm2 to report every key. On macOS this
+    makes Pinyin candidate keys such as 1/2/3 reach the TUI before the IME can
+    commit the selected text. Textual reads this switch at import time, so it
+    must be set before importing ``workbench.tui``.
+    """
+    is_iterm = (
+        os.environ.get("TERM_PROGRAM") == "iTerm.app"
+        or os.environ.get("LC_TERMINAL") == "iTerm2"
+    )
+    if sys.platform == "darwin" and is_iterm:
+        os.environ["TEXTUAL_DISABLE_KITTY_KEY"] = "1"
 
 
 def cmd_import_source(args) -> int:

@@ -177,7 +177,7 @@ class NotePop(ModalScreen):
         remove = list(old_tags - set(new_tags))
         if add or remove:
             q.update_card_tags(self.card_id, add=add, remove=remove)
-        note = self.query_one("#note-text", TextArea).value.strip()
+        note = self.query_one("#note-text", TextArea).text.strip()
         q.set_annotation(self.card_id, note)
         self.app.refresh_reader()
         self.app.notify("批注已保存")
