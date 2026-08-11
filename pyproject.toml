@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "loom-harness"
 version = "0.2.0"
-description = "An AI knowledge network and local-first cognitive harness that turns source material into linked knowledge for agents."
+description = "A local-first cognitive harness that turns sources into a typed, layered knowledge network for AI agents."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
