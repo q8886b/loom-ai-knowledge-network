@@ -17,7 +17,7 @@ description: 把任意格式资源（PDF/EPUB/视频/音频/HTML/docx/txt）以�
 - **任意格式**：PDF（文本型 + 扫描型）、EPUB、视频/音频、HTML、docx/pptx、markdown/txt
 - **最佳质量**：按格式选最佳引擎（pymupdf/docling/rapidocr/pandoc/markitdown/faster-whisper）
 - **最快速度**：文本型 PDF < 10s/100 页；扫描型 PDF OCR ~1s/页；视频转写 ~30s/分钟
-- **最优成本**：全本地，零 API 费用；模型用本地缓存
+- **最优成本**：默认全本地，零 API 费用；模型用本地缓存
 - **成功率保证**：三层兜底 + harness 校验，失败时清晰报告"罕见情况"
 
 ## 用法
@@ -124,6 +124,7 @@ ch01.md, ch02.md, ...   # 按章节切分（默认切，--no-split 跳过）
 3. **复杂公式 PDF**：Docling/pymupdf 都不识别 LaTeX，公式会乱。需要 MinerU（暂未集成）。
 4. **多栏英文 PDF**：pymupdf 默认按 Y 坐标排序会交错左右栏，输出排版乱但信息完整。后续 LLM 清洗可修复。
 5. **whisper large-v3 模型**：~3GB，需要从 HuggingFace 下载。环境变量 `HF_ENDPOINT=https://hf-mirror.com` 走中国镜像。或用 base 模型（本地缓存）。
+6. **远程 OCR 是显式选择**：默认不会探测远端主机或上传材料。只有用户明确设置 `LOOM_OCR_REMOTE_HOST=<ssh-host>` 时，扫描型 PDF 才可能通过 SSH/SCP 发往该主机；运行时会在 stderr 显示外发提示，并在成功或失败后清理远端临时目录。
 
 ## 与 Loom 集成
 

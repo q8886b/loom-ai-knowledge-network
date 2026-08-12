@@ -70,6 +70,7 @@ brew install pandoc ffmpeg tesseract tesseract-lang  # tesseract-lang 含 chi_si
 - `HF_ENDPOINT=https://hf-mirror.com` — 中国 HF 镜像（whisper 模型下载用）
 - `WHISPER_MODEL=large-v3` — 指定 faster-whisper 模型
 - `PREFER_FASTER_WHISPER=1` — 优先用 faster-whisper（默认优先 whisper CLI）
+- `LOOM_OCR_REMOTE_HOST=<ssh-host>` — 可选、显式启用远程 GPU OCR；会把扫描 PDF 上传到该主机。未设置时 OCR 完全在本机执行
 
 ## 文件结构
 

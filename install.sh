@@ -119,6 +119,7 @@ ensure_dir "$LOOM_HOME/data"
 ensure_dir "$LOOM_HOME/sources"
 ensure_dir "$LOOM_HOME/cards"
 ensure_dir "$LOOM_HOME/active"
+chmod 700 "$LOOM_HOME" "$LOOM_HOME/data" "$LOOM_HOME/sources" "$LOOM_HOME/cards" "$LOOM_HOME/active"
 
 if [[ ! -f "$LOOM_HOME/.env" ]]; then
   if [[ -f "$REPO_DIR/.env.example" ]]; then
@@ -126,6 +127,7 @@ if [[ ! -f "$LOOM_HOME/.env" ]]; then
     echo "Created $LOOM_HOME/.env from example. Edit it to choose your embedding provider."
   fi
 fi
+chmod 600 "$LOOM_HOME/.env"
 
 # Migrate existing data if present in the repo checkout and target is empty
 if [[ -f "$REPO_DIR/data/brain.db" && ! -f "$LOOM_HOME/data/brain.db" ]]; then
@@ -134,6 +136,11 @@ if [[ -f "$REPO_DIR/data/brain.db" && ! -f "$LOOM_HOME/data/brain.db" ]]; then
   [[ -d "$REPO_DIR/sources" ]] && cp -R "$REPO_DIR/sources" "$LOOM_HOME/"
   [[ -d "$REPO_DIR/cards" ]] && cp -R "$REPO_DIR/cards" "$LOOM_HOME/"
 fi
+
+# Loom data can contain private source material and card content. Repair older
+# installs that inherited a permissive umask before continuing.
+find "$LOOM_HOME" -type d -exec chmod 700 {} +
+find "$LOOM_HOME" -type f -exec chmod 600 {} +
 
 # ---------------------------------------------------------------------------
 # 3. Install `loom` command into PATH

@@ -7,6 +7,15 @@ on:
   pull_request:
 
 jobs:
+  privacy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Audit tracked data and reachable history
+        run: python3 scripts/audit_public_repo.py
+
   python:
     runs-on: ubuntu-latest
     env:

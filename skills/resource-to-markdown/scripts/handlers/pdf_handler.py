@@ -16,6 +16,7 @@ RapidOCR 直连（2026-06-23 实装）：
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -172,18 +173,21 @@ def convert_with_tesseract(pdf_path: Path, out_md: Path,
 
 
 def _rapidocr_device() -> str:
-    """OCR 设备：LOOM_OCR_LOCAL 强制本地 > sshhome 远程 GPU > 本地 GPU > 本地 CPU。"""
-    if os.environ.get("LOOM_OCR_LOCAL"):
-        pass  # 强制跳过远程检测，走本地
-    elif shutil.which("ssh"):
+    """OCR 设备：显式配置的远程 GPU > 本地 GPU > 本地 CPU。"""
+    remote_host = os.environ.get("LOOM_OCR_REMOTE_HOST", "").strip()
+    if remote_host and not re.fullmatch(
+        r"[A-Za-z0-9_.-]+(?:@[A-Za-z0-9_.-]+)?", remote_host
+    ):
+        raise ValueError("LOOM_OCR_REMOTE_HOST must be an SSH host or user@host")
+    if remote_host and shutil.which("ssh"):
         try:
             r = subprocess.run(
-                ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", "sshhome",
+                ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", remote_host,
                  "LD_LIBRARY_PATH=/usr/local/lib/ollama/cuda_v13:/usr/lib/wsl/lib python3.11 -c 'import onnxruntime as ort;print(any(\"CUDA\" in p for p in ort.get_available_providers()))'"],
                 capture_output=True, text=True, timeout=10,
             )
             if r.returncode == 0 and r.stdout.strip() == "True":
-                return "remote:sshhome"
+                return f"remote:{remote_host}"
         except Exception:
             pass
     try:
@@ -202,7 +206,8 @@ def convert_with_rapidocr_direct(
     """RapidOCR 直接 OCR（扫描型 PDF 主路径）。
 
     pdftoppm 渲染 + RapidOCR 识别。
-    自动选设备：sshhome GPU → 本地 GPU → 本地 CPU。
+    默认全本地。只有显式设置 LOOM_OCR_REMOTE_HOST 时才会探测远程 GPU，
+    并通过 SSH/SCP 把 PDF 发往该主机处理。
     实测 GPU ~1.2s/页（置信度 0.97-1.00），CPU ~4s/页。
     """
     import pymupdf
@@ -216,18 +221,23 @@ def convert_with_rapidocr_direct(
         doc.close()  # 远程分支不需要本地 doc，只用了 page_count
         host = device.split(":", 1)[1]
         remote = f"/tmp/loom-ocr-remote-{os.getpid()}"
+        print(
+            f"  OCR privacy notice: sending PDF to configured host {host}",
+            file=sys.stderr,
+        )
         r = subprocess.run(["ssh", "-o", "ConnectTimeout=10", host, f"rm -rf {remote} && mkdir -p {remote}"],
-                           capture_output=True, timeout=10)
+                           capture_output=True, text=True, timeout=10)
         if r.returncode != 0:
             return {"ok": False, "engine": "rapidocr-remote", "error": f"ssh failed: {r.stderr[:100]}"}
-        file_size = pdf_path.stat().st_size
-        scp_upload_timeout = max(300, int(file_size / 500_000))  # ≥5min, ~0.5MB/s
-        r = subprocess.run(["scp", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=60", "-o", "ServerAliveCountMax=5", str(pdf_path), f"{host}:{remote}/in.pdf"],
-                           capture_output=True, timeout=scp_upload_timeout)
-        if r.returncode != 0:
-            return {"ok": False, "engine": "rapidocr-remote", "error": f"scp upload ({file_size/1e6:.0f}MB): {r.stderr[:100]}"}
-        # 远程 OCR 脚本（通过 stdin 传给 python3）
-        script = f"""
+        try:
+            file_size = pdf_path.stat().st_size
+            scp_upload_timeout = max(300, int(file_size / 500_000))  # ≥5min, ~0.5MB/s
+            r = subprocess.run(["scp", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=60", "-o", "ServerAliveCountMax=5", str(pdf_path), f"{host}:{remote}/in.pdf"],
+                               capture_output=True, text=True, timeout=scp_upload_timeout)
+            if r.returncode != 0:
+                return {"ok": False, "engine": "rapidocr-remote", "error": f"scp upload ({file_size/1e6:.0f}MB): {r.stderr[:100]}"}
+            # 远程 OCR 脚本（通过 stdin 传给 python3）
+            script = f"""
 import pymupdf, tempfile
 from rapidocr_onnxruntime import RapidOCR
 from pathlib import Path
@@ -258,22 +268,27 @@ with tempfile.TemporaryDirectory() as td:
 Path("{remote}/out.md").write_text("\\n\\n".join(parts), encoding="utf-8")
 print(f"DONE {{doc.page_count}} pages", flush=True)
 """
-        ocr_timeout = max(3600, total_pages * 15)  # ≥1h, 15s/page 留网络余量
-        r = subprocess.run(["ssh", "-o", "ConnectTimeout=10",
-                           "-o", "ServerAliveInterval=60", "-o", "ServerAliveCountMax=120",
-                           host,
-                           f"LD_LIBRARY_PATH=/usr/local/lib/ollama/cuda_v13:/usr/lib/wsl/lib python3.11 -c '{script}'"],
-                           capture_output=True, text=True, timeout=ocr_timeout)
-        if r.returncode != 0 or "DONE" not in r.stdout:
-            return {"ok": False, "engine": "rapidocr-remote", "error": f"remote ocr({total_pages}p): {r.stderr[-200:]}"}
-        scp_download_timeout = max(120, total_pages * 3)  # 输出<输入
-        r = subprocess.run(["scp", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=60", "-o", "ServerAliveCountMax=5", f"{host}:{remote}/out.md", str(out_md)],
-                           capture_output=True, timeout=scp_download_timeout)
-        if r.returncode != 0:
-            return {"ok": False, "engine": "rapidocr-remote", "error": f"scp download: {r.stderr[:100]}"}
-        subprocess.run(["ssh", "-o", "ConnectTimeout=5", host, f"rm -rf {remote}"], capture_output=True, timeout=10)
-        return {"ok": True, "engine": "rapidocr-remote", "chars": out_md.stat().st_size,
-                "strategy": f"ocr_rapidocr_remote:{host}", "pages": total_pages, "dpi": dpi}
+            ocr_timeout = max(3600, total_pages * 15)  # ≥1h, 15s/page 留网络余量
+            r = subprocess.run(["ssh", "-o", "ConnectTimeout=10",
+                               "-o", "ServerAliveInterval=60", "-o", "ServerAliveCountMax=120",
+                               host,
+                               f"LD_LIBRARY_PATH=/usr/local/lib/ollama/cuda_v13:/usr/lib/wsl/lib python3.11 -c '{script}'"],
+                               capture_output=True, text=True, timeout=ocr_timeout)
+            if r.returncode != 0 or "DONE" not in r.stdout:
+                return {"ok": False, "engine": "rapidocr-remote", "error": f"remote ocr({total_pages}p): {r.stderr[-200:]}"}
+            scp_download_timeout = max(120, total_pages * 3)  # 输出<输入
+            r = subprocess.run(["scp", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=60", "-o", "ServerAliveCountMax=5", f"{host}:{remote}/out.md", str(out_md)],
+                               capture_output=True, text=True, timeout=scp_download_timeout)
+            if r.returncode != 0:
+                return {"ok": False, "engine": "rapidocr-remote", "error": f"scp download: {r.stderr[:100]}"}
+            return {"ok": True, "engine": "rapidocr-remote", "chars": out_md.stat().st_size,
+                    "strategy": f"ocr_rapidocr_remote:{host}", "pages": total_pages, "dpi": dpi}
+        finally:
+            subprocess.run(
+                ["ssh", "-o", "ConnectTimeout=5", host, f"rm -rf {remote}"],
+                capture_output=True,
+                timeout=10,
+            )
 
     # 本地路径
     try:

@@ -150,5 +150,6 @@ npm run dev
 
 Open <http://127.0.0.1:8888>.
 
-Do not expose the Workbench API to a public interface without authentication;
-it serves card content.
+The frontend proxies `/api` to the localhost backend, so no cross-origin access
+is required. Do not add a public bind or permissive CORS policy without
+authentication; the API serves complete card content.

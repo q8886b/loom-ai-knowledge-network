@@ -506,6 +506,8 @@ search 的 hybrid 模式是默认——FTS 抓精确术语，向量抓同义改�
 
 向量化是 Loom 的核心能力，但 provider 不是核心依赖。`LOOM_EMBED_PROVIDER` 支持本地 Ollama、OpenAI-compatible API、Zhipu preset；默认新用户路径推荐本地 Ollama。一个 DB 固定一个 embedding 维度，维度写入 `loom_meta.embedding_dim`；切换 provider/model/dim 后必须显式运行 `loom-admin rebuild-embeddings` 重建 `cards_vec`。卡片和 link 不受影响。
 
+**数据边界**：Ollama 默认只向 `127.0.0.1` 发送文本；OpenAI-compatible / Zhipu 会把卡片或原文片段发送到所配置的远端 endpoint，属于显式选择的内容外发。Workbench 只监听 localhost，前端通过同源代理访问 API，后端不开放跨域读取。`LOOM_HOME` 及数据库、卡片镜像和派生索引默认使用 owner-only 权限。资源转换默认本地执行；远程 OCR 只有显式设置 `LOOM_OCR_REMOTE_HOST` 时才可上传材料。
+
 **embedding 的两个用途严格区分**：
 
 | 场景 | 时机 | 命令 | 为什么 |

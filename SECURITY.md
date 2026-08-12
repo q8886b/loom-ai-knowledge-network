@@ -28,8 +28,19 @@ Do not publish:
 ## Workbench Exposure
 
 The Workbench backend is intended for localhost use. It exposes read endpoints
-for card content and should not be served on a public interface without adding
-authentication and origin restrictions.
+for card content, binds to `127.0.0.1`, and does not enable cross-origin browser
+access. Do not add a public bind or permissive CORS policy without authentication.
+
+## External Processing
+
+The default Ollama embedding path is local. OpenAI-compatible and Zhipu
+embedding providers send up to the configured input limit of card or source
+text to the selected endpoint. Remote PDF OCR is disabled by default; setting
+`LOOM_OCR_REMOTE_HOST` explicitly authorizes scanned PDFs to be sent to that SSH
+host. Review both settings before processing confidential or licensed material.
+
+Loom creates its managed home and data directories with owner-only permissions
+and stores databases, card mirrors, and derived indexes as owner-readable files.
 
 ## Hook Safety
 

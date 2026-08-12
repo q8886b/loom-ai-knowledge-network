@@ -43,8 +43,30 @@ from . import embed
 PROJECT_ROOT = Path(os.environ.get("LOOM_HOME", Path.home() / ".loom"))
 DB_PATH = PROJECT_ROOT / "data" / "brain.db"
 CARDS_DIR = PROJECT_ROOT / "cards"
+SOURCES_DIR = PROJECT_ROOT / "sources"
 L4_INDEX_PATH = PROJECT_ROOT / "data" / "l4_index.md"
 ORIENT_PATH = PROJECT_ROOT / "data" / "orient.md"
+
+
+def _private_dir(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.chmod(0o700)
+
+
+def _private_file(path: Path) -> None:
+    if path.exists():
+        path.chmod(0o600)
+
+
+def _secure_db_files(db_path: Path) -> None:
+    for suffix in ("", "-wal", "-shm"):
+        _private_file(Path(f"{db_path}{suffix}"))
+
+
+def _write_private_text(path: Path, content: str) -> None:
+    _private_dir(path.parent)
+    path.write_text(content, encoding="utf-8")
+    path.chmod(0o600)
 
 VALID_COGNITIVE_TYPES = {
     "概念", "结构", "机制", "案例", "判断", "反思", "模式", "主题",
@@ -120,8 +142,10 @@ def connect(db_path: Path = DB_PATH):
 
     事务语义：with 块正常退出 → commit；异常退出 → 显式 rollback 再 raise。
     """
-    db_path.parent.mkdir(parents=True, exist_ok=True)
+    _private_dir(PROJECT_ROOT)
+    _private_dir(db_path.parent)
     conn = sqlite3.connect(str(db_path))
+    _secure_db_files(db_path)
     conn.row_factory = sqlite3.Row
     conn.enable_load_extension(True)
     # sqlite_vec may live in package; load by symbol
@@ -132,6 +156,7 @@ def connect(db_path: Path = DB_PATH):
         import sqlite_vec as _sv
         conn.load_extension(os.path.dirname(_sv.__file__) or ".")
     conn.execute("PRAGMA journal_mode=WAL;")
+    _secure_db_files(db_path)
     conn.execute("PRAGMA foreign_keys=ON;")
     try:
         yield conn
@@ -141,6 +166,7 @@ def connect(db_path: Path = DB_PATH):
         raise
     finally:
         conn.close()
+        _secure_db_files(db_path)
 
 
 # Schema 版本——每次 schema 变更 +1。
@@ -155,6 +181,8 @@ def init_db(db_path: Path = DB_PATH) -> None:
 
     版本门用 SQLite 内置 PRAGMA user_version——单行整数，永久持久化在 db 文件里。
     """
+    _private_dir(CARDS_DIR)
+    _private_dir(SOURCES_DIR)
     with connect(db_path) as conn:
         current = conn.execute("PRAGMA user_version").fetchone()[0]
         if current >= SCHEMA_VERSION:
@@ -1053,7 +1081,6 @@ def _card_file_path(card_id: str) -> Path:
 def write_card_file(card: dict[str, Any]) -> None:
     """Mirror card content to cards/<ns>/<id>.md for git versioning."""
     p = _card_file_path(card["id"])
-    p.parent.mkdir(parents=True, exist_ok=True)
     origin = normalize_origin(card.get("origin"))
     tags = parse_tags_json(card.get("tags") or "[]")
     optional_meta: list[str] = []
@@ -1077,7 +1104,7 @@ search_count: {card.get('search_count', 0)}
 
 {card['content']}
 """
-    p.write_text(body, encoding="utf-8")
+    _write_private_text(p, body)
 
 
 def remove_card_file(card_id: str) -> None:
@@ -1562,8 +1589,7 @@ def rebuild_l4_index() -> int:
         if len(first_para) > 200:
             first_para = first_para[:200].rstrip() + "…"
         lines.append(f"- {first_para}  (`{c['id']}`)")
-    L4_INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
-    L4_INDEX_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    _write_private_text(L4_INDEX_PATH, "\n".join(lines) + "\n")
     return len(cards)
 
 
@@ -1602,8 +1628,7 @@ def rebuild_directory() -> int:
             lines.append(first_para)
             lines.append("")
 
-    ORIENT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    ORIENT_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    _write_private_text(ORIENT_PATH, "\n".join(lines) + "\n")
     return len(l4_cards)
 
 
