@@ -47,6 +47,9 @@ loom off
 # TUI 终端阅读器（终端内浏览/翻卡/搜索/批注，自动拉起 workbench 后端）
 loom tui
 
+# 本地网页版知识图谱浏览器（http://127.0.0.1:8765/，自动拉起/复用后端并打开浏览器）
+loom workbench
+
 # L1 原文
 loom import-source <source_id> --title=<title> --path=<md>
 loom read-source <L1_id|path>

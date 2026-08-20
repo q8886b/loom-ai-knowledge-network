@@ -158,6 +158,8 @@ def connect(db_path: Path = DB_PATH):
     conn.execute("PRAGMA journal_mode=WAL;")
     _secure_db_files(db_path)
     conn.execute("PRAGMA foreign_keys=ON;")
+    # 并发写：冲突时排队等待而非立即报错（默认 busy_timeout=0 会直接抛 locked）
+    conn.execute("PRAGMA busy_timeout=5000;")
     try:
         yield conn
         conn.commit()

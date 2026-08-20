@@ -133,19 +133,22 @@ loom commit-ready --semantic-passed
 
 The Workbench is a local graph browser.
 
-Backend:
+One command (backend + browser):
+
+```bash
+loom workbench
+```
+
+It (re)uses or starts the backend at <http://127.0.0.1:8765/> and opens the
+page in your default browser. The backend is hosted from `workbench/backend/static/`
+(the compiled SPA), so no separate frontend dev server is needed.
+
+Manual mode (development only):
 
 ```bash
 python3.11 -m pip install -e ".[workbench]"
-python3.11 workbench/backend/main.py
-```
-
-Frontend:
-
-```bash
-cd workbench/frontend
-npm install
-npm run dev
+python3.11 workbench/backend/main.py          # backend on :8765
+cd workbench/frontend && npm run dev          # dev server on :8888, proxies /api
 ```
 
 Open <http://127.0.0.1:8888>.

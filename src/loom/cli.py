@@ -214,12 +214,8 @@ def _record_l4_refs(task_id: str, l4_refs_update: list[str]) -> None:
 WORKBENCH_PORT = 8765
 
 
-def _ensure_workbench_backend() -> None:
-    """端口探测 workbench 后端；不活则后台拉起（常驻，不随 TUI 退出关闭）。
-
-    网页版与 TUI 共用同一后端。拉起失败（如依赖缺失）不阻塞 TUI——TUI 直连
-    数据库，不依赖 HTTP。
-    """
+def _workbench_ready() -> bool:
+    """TCP 探测 workbench 后端是否已监听。"""
     import socket
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -227,11 +223,21 @@ def _ensure_workbench_backend() -> None:
     try:
         try:
             sock.connect(("127.0.0.1", WORKBENCH_PORT))
-            return  # 已存活
+            return True
         except OSError:
-            pass
+            return False
     finally:
         sock.close()
+
+
+def _ensure_workbench_backend() -> None:
+    """端口探测 workbench 后端；不活则后台拉起（常驻，不随 TUI 退出关闭）。
+
+    网页版与 TUI 共用同一后端。拉起失败（如依赖缺失）不阻塞 TUI——TUI 直连
+    数据库，不依赖 HTTP。
+    """
+    if _workbench_ready():
+        return
 
     import pathlib
     import subprocess
@@ -268,6 +274,23 @@ def cmd_tui(args) -> int:
 
     app = WorkbenchApp()
     app.run()
+    return 0
+
+
+def cmd_workbench(args) -> int:
+    """本地网页版知识图谱浏览器（loom workbench）。"""
+    import time
+    import webbrowser
+
+    _ensure_workbench_backend()
+    # 拉起是异步的，等端口就绪再开浏览器
+    for _ in range(40):
+        if _workbench_ready():
+            break
+        time.sleep(0.25)
+    url = f"http://127.0.0.1:{WORKBENCH_PORT}/"
+    print(f"Workbench: {url}")
+    webbrowser.open(url)
     return 0
 
 
@@ -2078,6 +2101,9 @@ def _build_parser(entrypoint: str = "loom") -> argparse.ArgumentParser:
     # tui（终端卡片阅读器）
     sp = sub.add_parser("tui", help="终端卡片阅读器（TUI）")
     sp.set_defaults(func=cmd_tui)
+
+    sp = sub.add_parser("workbench", help="本地网页版知识图谱浏览器（拉起/复用后端并打开浏览器）")
+    sp.set_defaults(func=cmd_workbench)
 
     # import-source（L1 source card 创建入口，§008-24）
     sp = sub.add_parser("import-source", help="注册 L1 source card（layer=L1,type=source）")
